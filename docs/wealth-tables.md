@@ -1,8 +1,9 @@
-# CBS StatLine: household wealth tables
+# CBS StatLine: household wealth tables (acceptance question 2)
 
-The table survey behind phase 1, done against CBS's live catalogue in September 2026. It
-records what each table can and cannot answer, so that later answers and charts don't claim
-more than the data supports.
+The table survey behind acceptance question 2 (top 1% vs bottom 50%, with and without home
+equity), done against CBS's live catalogue in September 2026. It records what each wealth
+table can and cannot answer. The notebook `notebooks/acceptance/02_vermogen_top1_onderste50.py`
+is built on it.
 
 ## Definitions (from the CBS table metadata)
 
@@ -48,19 +49,21 @@ receivable in another. The `core` views therefore always select by code within o
 the non-housing wealth *of those same households*; the households are not re-ranked on
 non-housing wealth. A household with a large home and few other assets sits in a high group
 on both lines. Every answer and chart that uses the "excl." figures has to say this;
-`core.wealth_group_shares.note` carries it.
+the notebook states it next to the table.
 
-**Top 1% excl. housing** is not in StatLine. Agreed approach: use the top 10% excl. housing
-as the nearest proxy and label it as such. Outside StatLine, estimates exist from research on
-CBS microdata, but that is not CBS StatLine data.
+**Top 1% excl. housing** is not in StatLine, so that part of the question is **niet
+beschikbaar** (plan v2, criterion 2). No proxy is used; the top 10% excl. housing is *not*
+presented as a stand-in.
 
-Values on 1 January 2023 (final), from `core.wealth_group_shares`:
+Values on 1 January 2023 (final), as computed in the notebook:
 
 | | incl. eigen woning | excl. eigen woning |
 |---|---|---|
 | Bottom 50% | 2.3% | 2.6% |
-| Middle 40% | 41.0% | 19.1% |
-| Top 10% | 56.7% | 78.2% |
+| Top 1% | 25.1% | niet beschikbaar |
+
+The bottom 50% had negative net wealth (more debt than assets) from 2010 through 2019, with
+a low of −70.2 bn euro in 2013. Charts must keep the zero line visible.
 | Top 1% | 25.1% | n/a |
 
 ## Provisional figures and revisions

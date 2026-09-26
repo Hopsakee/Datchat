@@ -1,84 +1,58 @@
-# Dutch Statistics Explorer — Project Plan
+# Dutch Statistics Explorer — Project Plan v2
 
-Sep 25, 2026 · @Jelle
+Sep 25, 2026 · @Jelle · supersedes v1 (same folder), after a grilling session
 
-A personal Claude Code application for exploring Dutch (and later European or global) statistics conversationally, with on-demand dashboards and charts, backed by a locally cached database.
+## Goal
 
-## Goal and scope
+A Claude Code skill that turns a plain-language question about Dutch statistics into a Marimo notebook built from CBS StatLine data — and says plainly when the data to answer it does not exist. It never invents data.
 
-Build a personal Claude Code application for exploring statistics, primarily Dutch, with room to expand to European or global data later. The core use case: ask a question in plain language (for example, how does the wealth of the richest 1 percent in the Netherlands compare to the bottom 50 percent, with and without home equity), then dig into the underlying numbers, sources, and time range interactively rather than getting a single number back.
+Example questions it must handle:
 
-The tool should support two modes side by side: conversational querying through Claude Code, and dashboard or chart generation from those same questions, so a question can turn into a visual you keep exploring.
+- "How does the wealth of the richest 1% in the Netherlands compare to the bottom 50%, with and without home equity?"
+- "How has the area of the 5 largest land-use types in the Netherlands developed over the last 20 years, compared to their share of Dutch GDP (bbp)?"
 
-## Architecture
+## How it works (decided)
 
-Claude Code acts as the conversational front end: it interprets questions, queries the local database, and generates Plotly charts and dashboard views on demand rather than maintaining a single fixed dashboard.
+- **The user's own Claude Code session is the conversational front end.** There is no LLM inside the app, and no API key.
+- **Each question produces one Marimo notebook** (a plain `.py` file) that the user keeps, re-runs, and edits. Marimo replaces Panel from v1: reactive cells give the drill-down, and the SQL cell that produced each chart sits right above it.
+- **DuckDB is local storage**, next to wherever Claude Code runs. It is a file, not a server.
+- **Discovery through a catalog.** A sync command loads the StatLine table catalog (IDs, titles, descriptions, periods) into DuckDB. The skill searches the catalog, picks tables, syncs only those, and records why it picked each one.
+- **Joins across classifications are allowed only as a visible assumption.** Example: land-use categories mapped to SBI sectors in the national accounts. The mapping lives in its own clearly labelled cell or file ("aanname, niet CBS"), the user can edit it, and the charts update.
+- **Writes are rare.** Blocking reads while a sync runs is acceptable, even for an hour. Notebooks open a connection per query rather than holding the file, and a sync that finds the file locked says so.
 
-### UI framework comparison
+## Ideal state — what done means
 
-| Framework | Strengths | Watch-outs |
-| --- | --- | --- |
-| Panel (HoloViz) | Built for exploratory, drill-down data analysis with cross-filtering; plotting-library agnostic (works well with Plotly); handles larger, more complex apps; strong fit for digging into numbers interactively | Less polished default look out of the box; slightly steeper learning curve for its more powerful declarative API |
-| Streamlit | Fastest to get something running; very easy to share; huge community | Rerun-the-whole-script model makes deep, stateful drill-down interactions clunkier |
-| NiceGUI | Ready-made GUI widgets (buttons, sliders, layout) with little code; built on FastAPI; good for admin-panel or form-style apps; easy to self-host and share | More geared to application-style UIs than to exploratory cross-filtered analysis |
+Each criterion names how it is falsified.
 
-**Decision: building this in Panel.** It fits the interactive, drill-down nature of the wealth and inequality questions best, and it's a new tool worth learning hands-on.
+1. **No invented numbers.** Every number in a generated notebook traces to a CBS table ID and the query that produced it, or to a labelled assumption cell. *Falsifier:* any displayed value without that trace.
+2. **Unanswerable means "niet beschikbaar".** When no CBS table covers the question, the skill says so, lists the tables it considered and why each fell short, and produces no chart. *Falsifier:* a chart or number for acceptance question 4.
+3. **The catalog sync works.** One command loads the StatLine catalog into DuckDB, and can re-run it idempotently. *Falsifier:* a second run that duplicates rows or fails.
+4. **The table sync works on demand.** Given table IDs, the data, metadata, and dimension labels land in DuckDB. *Falsifier:* a synced table whose row count or a sampled value differs from StatLine.
+5. **Notebooks run headless.** Every generated notebook passes `marimo export` (or equivalent) without errors. *Falsifier:* one that fails.
+6. **All four acceptance questions below pass**, each with a spot check against StatLine recorded in the repo.
 
-## Data sources
+## Acceptance questions
 
-**Start with CBS only.** Statistics Netherlands (CBS) publishes wealth, income, and agricultural data (including household wealth by wealth class, and figures like cattle feed or nutrient imports) through its StatLine OData API. The unofficial `cbsodata` Python package wraps this cleanly, and there's also a raw OData v4 API for direct queries. Build and prove the full pipeline (sync, store, query, visualize) against CBS before adding anything else.
+1. **Exact:** "Hoeveel inwoners had Nederland op 1 januari 2024?" — must match StatLine exactly.
+2. **Headline:** top 1% vs bottom 50% wealth, with and without home equity, over time. If CBS does not publish this split, the correct outcome is criterion 2, not an approximation.
+3. **Two tables plus a mapping:** the five largest land-use types over 20 years vs their sector share of bbp. The land-use-to-sector mapping must appear as an assumption.
+4. **Must fail honestly:** "Vermogen van de top 0,01% per gemeente in 1950" → niet beschikbaar.
 
-**Later sources, once the pattern is proven:**
+## Out of scope for this goal
 
-- Eurostat, for European comparisons
-- BRO (Basisregistratie Ondergrond), for soil and groundwater data — geospatial, has its own API
-- PDOK, the Dutch national geodata portal — geospatial (OGC APIs, WFS/WMS), likely needed alongside BRO
+- Publishing or hosting notebooks (Hetzner, Marimo hosting services, anything else).
+- Any source besides CBS: Eurostat, BRO, PDOK.
+- A fixed dashboard, or an LLM chat inside the app.
 
-The geospatial sources (BRO, PDOK) are structurally different from CBS's tabular data (they carry geometry) and larger in volume, so they'll likely need their own handling (possibly PostGIS or a spatial extension) rather than fitting the same simple table pattern as CBS.
+## Constraints and known gotchas
 
-## Storage
+- **Python, with `uv` as the only package manager.** A `pyproject.toml` plus a committed `uv.lock`; every command runs as `uv run …`; no `pip`, `requirements.txt`, conda, or poetry. Generated notebooks must run from the project environment with `uv run marimo edit <notebook>.py`. The DuckDB file is gitignored.
+- **CBS API version: verify, don't assume.** The unofficial `cbsodata` package targets the older OData v3 API; CBS also has an OData v4 API. Pick whichever actually serves the needed tables, and record why in the repo.
+- **DuckDB concurrency:** one read-write process *or* several read-only processes, never both. See "Writes are rare" above.
+- The cloud environment needs network access to the CBS API hosts. The agent must confirm that before building on it.
 
-**Decision: DuckDB.** It's an embedded, in-process analytical (OLAP) database, purpose-built for the kind of group-by and aggregation queries this project needs (e.g. top 1 percent versus bottom 50 percent, filtered by year). No server to manage, and far faster than a row-oriented database for this workload. Its single-writer model is not a concern here, since only a periodic sync job writes while Panel reads.
+## Roadmap after this goal (the user's call, not the agent's)
 
-Runs on the Hetzner server alongside the sync jobs; Panel queries it directly.
-
-## Build phases
-
-1. **Pipeline proof-of-concept with CBS.** Sync job pulling wealth/income tables via `cbsodata` into DuckDB on the Hetzner server; verify the data lands cleanly and matches StatLine.
-2. **Conversational querying.** Claude Code reads from DuckDB and answers questions in plain language, including drill-down follow-ups (source table, year range, methodology).
-3. **Panel dashboards.** Build interactive, cross-filterable Panel views (e.g. wealth share by group over time, with/without housing equity) driven by the same underlying questions/queries.
-4. **Sharing.** Host the Panel app on the Hetzner server so it's reachable beyond just local use.
-5. **Expand sources.** Add Eurostat, then BRO/PDOK as separate connectors once the CBS pipeline is stable.
-
-## Open questions
-
-- **Sync schedule:** left open for now — update on demand rather than a fixed schedule, since usage frequency isn't yet known.
-- **Spatial storage for BRO/PDOK: DuckDB's spatial extension, not PostGIS.** DuckDB Spatial has geometry types and spatial functions, but is still maturing compared to PostGIS (e.g. no SRID stored on the geometry itself, no geography type). PostGIS fits long-lived, shared, multi-user spatial systems better; DuckDB Spatial fits local, personal analytical work better, which matches this project. Decision: use DuckDB's spatial extension when BRO/PDOK are added, and only move to PostGIS if an actual wall is hit.
-- **Database location: confirmed on Hetzner.** The DuckDB file lives on the Hetzner server; both Claude Code and the Panel app query it there.
-
-## Inspiration: agent-skill patterns worth learning from
-
-Two agent skills from [hugobowne/show-us-your-agent-skills](https://github.com/hugobowne/show-us-your-agent-skills) are useful as reference material for how to structure our own approach — not to install or adapt directly, just to learn the patterns and reimplement our own version where it fits:
-
-- **[marimo-pair](https://github.com/hugobowne/show-us-your-agent-skills/tree/main/skills/marimo-pair)** (Apache 2.0) — pattern worth studying: a bash bridge lets the agent execute code directly in a running notebook kernel and see results live, rather than just generating code blindly. Good reference for the interactive, human-in-the-loop drill-down phase ("dig into the numbers") before anything gets formalized into a Panel view — even if we don't use Marimo itself.
-- **[high-signal-chart-workflow](https://github.com/hugobowne/show-us-your-agent-skills/tree/main/skills/high-signal-chart-workflow)** (CC BY-NC-ND — personal reference only, do not copy or fork the code) — pattern worth studying: a design checklist plus a verifier loop that keeps regenerating a chart until it meets Tufte-style standards (no default gridlines, direct labels instead of legends, axis titles with units, muted palette with one accent color, dpi=300). Worth adopting as *our own* design checklist for Plotly/Panel charts, written in our own words.
-
-## Cold-start prompt for the Claude Code VM
-
-I'm building a personal data-exploration app: ask questions in plain language about Dutch statistics (CBS StatLine first — household wealth, income, agriculture/nutrient data), and get back both conversational answers and interactive Panel dashboards, drilling into source tables, time ranges, and methodology.
-
-Stack:
-
-- Storage: DuckDB, single file, living on my Hetzner server. No other writers, so no concurrency concerns for now.
-- Data source: CBS StatLine via the `cbsodata` Python package (or the raw OData v4 API directly if needed).
-- UI: Panel (HoloViz), chosen for its strength in exploratory, cross-filterable drill-down analysis — not Streamlit or NiceGUI. Charts via Plotly.
-- Deployment: Panel app hosted on the Hetzner server so I can access and share it.
-
-Build phase 1 first: a sync pipeline that pulls the relevant CBS StatLine tables (household wealth by wealth class, including a split that separates out housing equity) into DuckDB, and verify the data lands cleanly and matches what StatLine shows on its own site. Don't build the Panel UI or add other data sources yet — prove this pipeline end to end first.
-
-Two design patterns to take inspiration from (do not copy, install, or fork any code from these — just read them for how they structure the problem, then write our own version in our own words if a pattern fits):
-
-1. marimo-pair (https://github.com/hugobowne/show-us-your-agent-skills/tree/main/skills/marimo-pair) — the idea of an agent executing code directly in a live kernel and observing results before writing the next step, rather than generating code blind. Relevant for how we do interactive, human-in-the-loop exploration before something gets formalized into the Panel app.
-2. high-signal-chart-workflow (https://github.com/hugobowne/show-us-your-agent-skills/tree/main/skills/high-signal-chart-workflow) — the idea of a written design checklist (no default gridlines, direct labels instead of legends, axis titles with units, muted palette with one accent color, dpi=300) paired with a verification step that checks a chart against it. Worth writing our own checklist along these lines for our Plotly/Panel charts.
-
-Start by checking what CBS StatLine tables actually exist for household wealth by percentile/wealth class (I'm especially interested in top 1% vs bottom 50%, and versions with/without housing equity), and propose the sync approach before writing the full pipeline.
+1. Use the skill on real questions.
+2. When a question fails because the data is missing, that question picks the next source to add.
+3. Then decide which frustration is bigger: missing sources, or not being able to publish notebooks. The bigger one goes next.

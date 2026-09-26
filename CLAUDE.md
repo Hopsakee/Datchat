@@ -1,16 +1,14 @@
 # Datchat: notes for Claude
 
-Personal Dutch-statistics explorer. Phase 1 (CBS → DuckDB sync + verification) is in place.
-The Panel UI and other sources come later; see docs/project-plan.md.
+A Claude Code skill that turns a question about Dutch statistics into one marimo notebook built
+from CBS StatLine data, or answers "niet beschikbaar". The current plan is docs/project-plan.md
+(v2). v1 (Panel, Hetzner hosting) is superseded.
 
-## Commands
-- `uv run datchat sync [TABLE…] [--force]` / `verify [--cross-check]` / `status` / `spotcheck`
-- `uv run pytest` (offline) · `uv run pytest -m live` (real CBS) · `uv run ruff check src tests`
-
-## Conventions
-- Data source: CBS OData v4 (`datasets.cbs.nl`); v3 only as automatic fallback. No `cbsodata`.
-- CBS codes are table-specific: never reuse a measure/dimension code across tables.
-- Every answer or chart states source table ids, years, and whether figures are *Voorlopig*.
-- "Excl. eigen woning" per 10%-group is ranked on total wealth, so say so (docs/data-sources.md).
-- Charts follow docs/chart-checklist.md.
-- When blocked (network, access, missing tool), stop and discuss with the user. No workarounds.
+- To answer a question, use the `cbs-question` skill (.claude/skills/cbs-question/SKILL.md).
+- Commands: `uv run datchat catalog | search | sync | describe | query | verify | check | status`
+- Tests: `uv run pytest` (offline) · `uv run pytest -m live` (real CBS, runs every notebook)
+- uv only: no pip, requirements.txt, conda or poetry. The DuckDB file is gitignored.
+- Never invent numbers and never use proxies. What CBS doesn't publish is "niet beschikbaar".
+- CBS codes are table-specific.
+- Out of scope: hosting or publishing, sources other than CBS, an LLM inside the app.
+- When blocked (network, CBS outage, locked database), stop and tell the user. No workarounds.

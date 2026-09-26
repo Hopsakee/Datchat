@@ -4,8 +4,9 @@
              dimension columns keep their CBS identifiers.
 - ``meta`` : table properties (incl. methodology text), dimensions, codes, groups, measures,
              and the sync log. Shared across all CBS tables, keyed by ``table_id``.
-- ``core`` : labelled views per table (``core.t83834ned``) plus curated analysis views
-             (see ``views.py``).
+- ``core`` : labelled views per table (``core.t83834ned``): every observation with code
+             titles, measure title and unit, and period status. Question-specific SQL lives
+             in the notebooks that answer questions.
 """
 
 from __future__ import annotations
@@ -130,10 +131,27 @@ def core_table(table_id: str) -> str:
     return f"core.t{table_id.lower()}"
 
 
+class DatabaseLocked(RuntimeError):
+    pass
+
+
 def connect(path: Path, read_only: bool = False) -> duckdb.DuckDBPyConnection:
+    """Open the database. DuckDB allows one writer *or* several readers, never both."""
+    if read_only and not path.exists():
+        raise FileNotFoundError(f"No database at {path}; run `uv run datchat catalog` first.")
     if not read_only:
         path.parent.mkdir(parents=True, exist_ok=True)
-    con = duckdb.connect(str(path), read_only=read_only)
+    try:
+        con = duckdb.connect(str(path), read_only=read_only)
+    except duckdb.IOException as e:
+        if "lock" in str(e).lower():
+            mode = "read" if read_only else "write to"
+            raise DatabaseLocked(
+                f"Cannot {mode} {path}: another process holds it"
+                f" ({'a sync is running' if read_only else 'e.g. a notebook or another sync'})."
+                " Try again when it has finished."
+            ) from e
+        raise
     if not read_only:
         con.execute(SCHEMA_SQL)
     return con

@@ -23,6 +23,7 @@ import httpx
 
 V4_BASE = "https://datasets.cbs.nl/odata/v1/CBS"
 V4_CSV_BASE = "https://datasets.cbs.nl/csv/CBS/nl"
+V3_CATALOG_URL = "https://opendata.cbs.nl/ODataCatalog/Tables"
 V3_FEED_BASE = "https://opendata.cbs.nl/ODataFeed/odata"
 V3_API_BASE = "https://opendata.cbs.nl/ODataApi/odata"
 
@@ -105,6 +106,12 @@ class CbsClient:
             params = None  # nextLink already carries the query
             yield from page["value"]
             next_url = page.get("@odata.nextLink") or page.get("odata.nextLink")
+
+    # -- catalog ------------------------------------------------------------------------------
+
+    def catalog(self) -> list[dict[str, Any]]:
+        """All tables in the CBS StatLine catalog (v3 ODataCatalog, incl. discontinued)."""
+        return list(self._get_paged(V3_CATALOG_URL, {"$format": "json"}))
 
     # -- v4 -----------------------------------------------------------------------------------
 

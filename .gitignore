@@ -8,3 +8,6 @@ dist/
 data/
 *.duckdb
 *.duckdb.wal
+
+# marimo session caches
+__marimo__/

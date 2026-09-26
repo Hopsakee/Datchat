@@ -1,28 +1,22 @@
-"""Verification: does the database hold exactly what CBS publishes?
-
-Three layers:
+"""Verification: does the database hold exactly what CBS publishes, for any synced table?
 
 1. Completeness & integrity (offline): row counts vs CBS ``ObservationCount``, every code
    resolvable in the metadata, no duplicate cells, every period has a status.
-2. Internal consistency (offline): identities CBS's figures must satisfy, within the rounding
-   of the published numbers (e.g. 10%-groups add up to the total; bezittingen - schulden =
-   vermogen; 'excl. eigen woning' = vermogen - eigen woning + hypotheekschuld).
-3. External agreement:
-   - offline: shares recomputed from our data vs figures CBS printed in its own publication;
-   - online (``--cross-check``): every cell re-downloaded from an independent CBS channel
-     (v3 API for v4-sourced tables, v4 bulk CSV for the v3-sourced one) and compared.
+2. Cross-check (online, ``--cross-check``): every cell re-downloaded from an independent CBS
+   channel (v3 API for v4-sourced tables, v4 bulk CSV for v3-sourced ones) and compared.
+
+Question-specific checks (sums, identities, published figures) live with the notebook that
+answers the question, not here.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 
 import duckdb
 
 from datchat import store
 from datchat.cbs import CbsClient, TableMetadata
-from datchat.reference import PUBLISHED_TOP_SHARES
 
 # Documented discrepancies in CBS's own metadata. Shown as NOTE, never silently passed.
 KNOWN_COUNT_DISCREPANCIES = {
@@ -129,228 +123,11 @@ def check_table_integrity(con: duckdb.DuckDBPyConnection, t: str) -> list[Check]
     return checks
 
 
-# -- 2. internal consistency ----------------------------------------------------------------
-
-
-def _max_gap(con: duckdb.DuckDBPyConnection, sql: str) -> tuple[float, int]:
-    gap, n = _q(con, f"SELECT coalesce(max(abs(gap)), 0), count(*) FROM ({sql})")[0]
-    return float(gap), int(n)
-
-
-def _identity(con: duckdb.DuckDBPyConnection, name: str, sql: str, tol: float, what: str) -> Check:
-    gap, n = _max_gap(con, sql)
-    return Check(
-        name, n > 0 and gap <= tol, f"{what}: max gap {gap:.3g} over {n} rows (tol {tol:.3g})"
-    )
-
-
-# Tolerance for a sum of n published figures, each rounded to one decimal, compared with a
-# separately rounded total: (n + 1) * 0.05.
-def _tol(n_terms: int, decimals: int = 1) -> float:
-    return (n_terms + 1) * 0.5 * 10**-decimals + 1e-9
-
-
-def consistency_83834(con: duckdb.DuckDBPyConnection) -> list[Check]:
-    wide = """
-        (PIVOT (SELECT year, Vermogensbestanddelen AS c, value FROM core.t83834ned
-                WHERE KenmerkenVanHuishoudens = '1050010' AND measure = 'M006782')
-         ON c USING first(value))
-    """
-    deciles = """
-        SELECT d.year, d.component_code, t.measure,
-               CASE t.measure WHEN '1050010' THEN d.hh ELSE d.tot END - t.value AS gap
-        FROM (SELECT year, component_code, sum(households_k) hh, sum(total_bn_eur) tot
-              FROM core.wealth_by_decile GROUP BY ALL) d
-        JOIN core.t83834ned t ON t.year = d.year AND t.Vermogensbestanddelen = d.component_code
-         AND t.KenmerkenVanHuishoudens = '1050010' AND t.measure IN ('1050010', 'M006782')
-    """
-    return [
-        _identity(
-            con,
-            "83834NED deciles sum to total",
-            deciles,
-            _tol(10),
-            "sum of 10%-groups vs all households (households, total wealth)",
-        ),
-        _identity(
-            con,
-            "83834NED vermogen = bezit - schuld",
-            f'SELECT "T001126" - ("1021410" - "1021460") AS gap FROM {wide}',
-            _tol(2),
-            "Vermogen vs Bezittingen - Schulden",
-        ),
-        _identity(
-            con,
-            "83834NED bezittingen components",
-            'SELECT "1021410" - ("1021420" + "1021430" + "1021450" + "1021424" + "1021440")'
-            f" AS gap FROM {wide}",
-            _tol(5),
-            "Bezittingen vs sum of 1.1-1.5",
-        ),
-        _identity(
-            con,
-            "83834NED schulden components",
-            f'SELECT "1021460" - ("1021461" + "1021426" + "1021462") AS gap FROM {wide}',
-            _tol(3),
-            "Schulden vs sum of 2.1-2.3",
-        ),
-        _identity(
-            con,
-            "83834NED excl. eigen woning",
-            f'SELECT "1021480" - ("T001126" - "1021431" + "1021461") AS gap FROM {wide}',
-            _tol(3),
-            "Vermogen excl. eigen woning vs Vermogen - Eigen woning + Hypotheek",
-        ),
-    ]
-
-
-def consistency_83835(con: duckdb.DuckDBPyConnection) -> list[Check]:
-    sql = """
-        SELECT c.year, c.s - t.value AS gap
-        FROM (SELECT year, sum(value) s FROM core.t83835ned
-              WHERE KenmerkenVanHuishoudens = '1050010' AND measure = '1050010'
-                AND Vermogensklassen_title LIKE 'Vermogen%euro%' GROUP BY year) c
-        JOIN core.t83835ned t ON t.year = c.year AND t.KenmerkenVanHuishoudens = '1050010'
-         AND t.measure = '1050010' AND t.Vermogensklassen = 'T001125'
-    """
-    return [
-        _identity(
-            con,
-            "83835NED wealth classes sum to total",
-            sql,
-            _tol(12),
-            "households over 12 euro classes vs total",
-        )
-    ]
-
-
-def consistency_84476(con: duckdb.DuckDBPyConnection) -> list[Check]:
-    ordered = _q(
-        con,
-        """
-        SELECT count(*) FILTER (WHERE NOT (top01_bn_eur <= top1_bn_eur
-                                           AND top1_bn_eur <= top10_bn_eur
-                                           AND top10_bn_eur <= total_bn_eur)), count(*)
-        FROM core.wealth_top_shares""",
-    )[0]
-    checks = [
-        Check(
-            "84476NED top 0.1% <= 1% <= 10% <= total",
-            ordered[0] == 0 and ordered[1] > 0,
-            f"{ordered[0]} violations over {ordered[1]} years",
-        )
-    ]
-    if _has(con, "83834NED"):
-        # Not a pure rounding identity: top-10% amounts in 84476NED are whole billions from
-        # 2018 on and deviate up to ~0.1% from the 10e 10%-groep in 83834NED.
-        rel = """
-            SELECT (s.top10_bn_eur - d.total_bn_eur) / d.total_bn_eur AS gap
-            FROM core.wealth_top_shares s JOIN core.wealth_by_decile d
-              ON d.year = s.year AND d.decile = 10 AND d.component_code = 'T001126'
-        """
-        tot = """
-            SELECT s.total_bn_eur - t.value AS gap FROM core.wealth_top_shares s
-            JOIN core.t83834ned t ON t.year = s.year AND t.KenmerkenVanHuishoudens = '1050010'
-             AND t.Vermogensbestanddelen = 'T001126' AND t.measure = 'M006782'
-        """
-        checks += [
-            _identity(
-                con,
-                "84476NED total = 83834NED total",
-                tot,
-                _tol(1),
-                "total household wealth in both tables",
-            ),
-            _identity(
-                con,
-                "84476NED top 10% ~ 83834NED 10e groep",
-                rel,
-                0.001,
-                "relative gap, top 10% vs 10e 10%-groep",
-            ),
-        ]
-    return checks
-
-
-def consistency_83934(con: duckdb.DuckDBPyConnection) -> list[Check]:
-    bad = _q(
-        con,
-        """
-        SELECT count(*) FROM (
-            SELECT boundary_k_eur < lag(boundary_k_eur) OVER
-                   (PARTITION BY year, population ORDER BY percentile) AS dec
-            FROM core.wealth_percentile_boundaries) WHERE dec""",
-    )[0][0]
-    return [Check("83934NED percentiles increase", bad == 0, f"{bad} decreasing steps")]
-
-
-def consistency_nr(con: duckdb.DuckDBPyConnection) -> list[Check]:
-    sql = """
-        SELECT g.s - t.value AS gap
-        FROM (SELECT source_table, year, sum(vermogenssaldo_mln_eur) s
-              FROM core.nr_wealth_groups GROUP BY ALL) g
-        JOIN (SELECT year, '84104NED' AS st, value FROM core.t84104ned
-              WHERE Huishoudenskenmerken = 'T001139' AND measure = 'M006629_1'
-              UNION ALL
-              SELECT year, '85889NED', value FROM core.t85889ned
-              WHERE Huishoudenskenmerken = 'T001139' AND measure = 'M006629_1') t
-          ON t.year = g.year AND t.st = g.source_table
-    """
-    return [
-        _identity(
-            con,
-            "NR wealth groups sum to total",
-            sql,
-            _tol(10, decimals=0),
-            "Vermogenssaldo (mln euro) over groups vs Totaal, 84104NED + 85889NED",
-        )
-    ]
-
-
-def check_published_shares(con: duckdb.DuckDBPyConnection) -> list[Check]:
-    ref = PUBLISHED_TOP_SHARES
-    ours = {
-        r[0]: r[1:]
-        for r in _q(
-            con, "SELECT year, top10_share, top1_share, top01_share FROM core.wealth_top_shares"
-        )
-    }
-    worst, where, n = 0.0, "", 0
-    for year, published in ref["values"].items():
-        if year not in ours:
-            continue
-        for label, pub, mine in zip(
-            ("top10", "top1", "top0.1"), published, ours[year], strict=True
-        ):
-            gap = abs(mine * 100 - pub)
-            n += 1
-            if gap > worst:
-                worst, where = gap, f"{year} {label}: ours {mine * 100:.2f}% vs published {pub}%"
-    tol = ref["tolerance_pp"]
-    return [
-        Check(
-            "84476NED shares vs CBS publication",
-            n > 0 and worst <= tol,
-            f"{n} values, max gap {worst:.2f} pp (tol {tol}; {where}) - {ref['source']}",
-        )
-    ]
-
-
 def _has(con: duckdb.DuckDBPyConnection, t: str) -> bool:
     return bool(_q(con, "SELECT 1 FROM meta.tables WHERE table_id = ?", [t]))
 
 
-CONSISTENCY: list[tuple[tuple[str, ...], Callable[[duckdb.DuckDBPyConnection], list[Check]]]] = [
-    (("83834NED",), consistency_83834),
-    (("83835NED",), consistency_83835),
-    (("84476NED",), consistency_84476),
-    (("84476NED",), check_published_shares),
-    (("83934NED",), consistency_83934),
-    (("84104NED", "85889NED"), consistency_nr),
-]
-
-
-# -- 3. online cross-check ------------------------------------------------------------------
+# -- 2. online cross-check ------------------------------------------------------------------
 
 
 def _stored_metadata(con: duckdb.DuckDBPyConnection, t: str) -> TableMetadata:
@@ -426,9 +203,6 @@ def run_checks(
     checks: list[Check] = []
     for t in tables:
         checks += check_table_integrity(con, t)
-    for required, fn in CONSISTENCY:
-        if set(required) <= set(tables) and all(_has(con, t) for t in required):
-            checks += fn(con)
     if cross_check_v3:
         with CbsClient() as client:
             for t in tables:

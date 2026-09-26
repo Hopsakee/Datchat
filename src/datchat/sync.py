@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import duckdb
 
-from datchat import store, views
+from datchat import store
 from datchat.cbs import CbsClient
 
 
@@ -61,5 +61,4 @@ def sync(
     finally:
         if own_client:
             client.close()
-    views.create_views(con)
     return results

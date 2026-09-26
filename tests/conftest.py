@@ -68,6 +68,44 @@ OBSERVATIONS = [
     _obs(5, "M2", "T001", "2024JJ00", 1.7),
     _obs(6, "M1", "G1", "2024JJ00", 4.2),
 ]
+CATALOG = [
+    {
+        "Identifier": "37296ned",
+        "Title": "Bevolking; kerncijfers",
+        "ShortDescription": "Kerncijfers over de bevolking van Nederland",
+        "Summary": "Bevolking, huishoudens",
+        "Period": "1950-2024",
+        "Frequency": "Perjaar",
+        "Modified": "2025-06-01T00:00:00",
+        "RecordCount": 75,
+        "Language": "nl",
+        "Catalog": "CBS",
+    },
+    {
+        "Identifier": "83834NED",
+        "Title": "Vermogen van huishoudens; vermogensbestanddelen",
+        "ShortDescription": "Samenstelling van het vermogen, incl. eigen woning",
+        "Summary": "Vermogen",
+        "Period": "2006-2024",
+        "Frequency": "Perjaar",
+        "Modified": "2025-10-08T00:00:00",
+        "RecordCount": 19,
+        "Language": "nl",
+        "Catalog": "CBS",
+    },
+    {
+        "Identifier": "70262ned",
+        "Title": "Bodemgebruik; gebruiksvorm, per gemeente",
+        "ShortDescription": "Oppervlakte naar bodemgebruik",
+        "Summary": "Bodemgebruik",
+        "Period": "1996-2015",
+        "Frequency": "Stopgezet",
+        "Modified": "2018-01-01T00:00:00",
+        "RecordCount": 5,
+        "Language": "nl",
+        "Catalog": "CBS",
+    },
+]
 PROPERTIES = {
     "Identifier": T,
     "Title": "Testtabel",
@@ -111,6 +149,7 @@ class FakeCbs:
         self.page_size: int | None = None
         self.properties = dict(PROPERTIES)
         self.requests: list[str] = []
+        self.catalog = [dict(e) for e in CATALOG]
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         url = str(request.url)
@@ -150,6 +189,8 @@ class FakeCbs:
             if skip + size < len(OBSERVATIONS):
                 page["@odata.nextLink"] = f"{V4_BASE}/{T}/Observations?$skip={skip + size}"
             return httpx.Response(200, json=page)
+        if path == "/ODataCatalog/Tables":
+            return httpx.Response(200, json={"value": self.catalog})
         if path == f"/csv/CBS/nl/{T}":
             return httpx.Response(200, content=_csv_zip())
         if path in routes:

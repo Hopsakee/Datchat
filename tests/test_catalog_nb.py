@@ -106,6 +106,15 @@ def test_chart_checker():
         charts.checked(fig)
 
 
+def test_style_makes_shapes_without_a_width_visible():
+    fig = go.Figure(go.Scatter(x=[1, 2], y=[3, 4], line={"color": charts.ACCENT}))
+    fig.add_vline(x=1.5, line_dash="dot")  # no width, as a notebook would write it
+    charts.style(fig, title="t", x_title="Jaar", y_title="Aandeel (%)", tables=["X"])
+    fig.add_hline(y=3.5)  # and after style()
+    assert fig.layout.template.layout.shapedefaults.line.width > 0
+    assert all(s.line.width is None for s in fig.layout.shapes)  # they inherit the default
+
+
 def test_table_ids_resolve_to_cbs_spelling(db, client):
     con = store.connect(db)
     assert store.canonical_id(con, "37296NED") == "37296NED"  # unknown: passed through

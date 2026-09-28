@@ -58,6 +58,10 @@ def style(
         plot_bgcolor="white",
         paper_bgcolor="white",
     )
+    # simple_white draws shapes with line width 0, so an add_vline/add_hline without an
+    # explicit width is invisible (a trend-break line vanished that way). Opacity stays the
+    # template's, so rectangles used as bands keep their soft fill.
+    fig.update_layout(template_layout_shapedefaults_line_width=1.5)
     axis = {"showgrid": False, "zeroline": False, "ticks": "outside", "linecolor": "#999"}
     fig.update_xaxes(title_text=x_title, mirror=False, **axis)
     fig.update_yaxes(title_text=y_title, mirror=False, **axis)

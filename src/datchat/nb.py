@@ -25,15 +25,40 @@ def sql(query: str, params: list | None = None) -> pd.DataFrame:
         con.close()
 
 
-def require(table_ids: Iterable[str]) -> None:
-    """Fail with a clear instruction when a table the notebook needs is not synced."""
+def require(table_ids: Iterable[str], *, sync_missing: bool = True, client=None) -> None:
+    """Make sure the tables a notebook needs are in the local cache.
+
+    A fresh clone has no database (it is gitignored), so by default the missing tables are
+    synced from CBS right here, with the same code as ``datchat sync``. When that cannot
+    work (no network, CBS down, an unknown id, the file locked by a writer) this raises
+    with the reason and the command to run by hand. ``sync_missing=False`` only checks.
+    """
     wanted = list(table_ids)
-    have = {t.lower() for t in sql("SELECT table_id FROM meta.tables")["table_id"]}
+    path = config.db_path()
+    have: set[str] = set()
+    if path.exists():
+        have = {t.lower() for t in sql("SELECT table_id FROM meta.tables")["table_id"]}
     missing = [t for t in wanted if t.lower() not in have]
-    if missing:
-        raise RuntimeError(
-            f"Tables not synced: {', '.join(missing)}. Run: uv run datchat sync {' '.join(missing)}"
-        )
+    if not missing:
+        return
+    hint = f"Run: uv run datchat sync {' '.join(missing)}"
+    if not sync_missing:
+        raise RuntimeError(f"Tables not synced: {', '.join(missing)}. {hint}")
+
+    from datchat.sync import sync
+
+    print(f"Syncing from CBS (first run of this notebook): {', '.join(missing)}", flush=True)
+    con = store.connect(path)
+    try:
+        results = sync(con, [store.canonical_id(con, t) for t in missing], client=client)
+    except Exception as e:
+        raise RuntimeError(f"Could not sync {', '.join(missing)} from CBS: {e}. {hint}") from e
+    finally:
+        con.close()
+    failed = [r for r in results if r.outcome == "failed"]
+    if failed:
+        why = "; ".join(f"{r.table_id}: {r.message}" for r in failed)
+        raise RuntimeError(f"Could not sync from CBS: {why}. {hint}")
 
 
 def sources(table_ids: Iterable[str]) -> pd.DataFrame:

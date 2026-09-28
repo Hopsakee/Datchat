@@ -335,8 +335,8 @@ def _(TABLES, charts, gevolgd_df, go):
     _pad = 0.9 * (_hi - _lo)  # room for the outside labels on both sides
     fig_groei.update_xaxes(zeroline=True, zerolinecolor="#999", range=[_lo - _pad, _hi + _pad])
     fig_groei.update_yaxes(title_text="Bodemgebruiksvorm (ha, BBG)")
-    charts.checked(fig_groei, value_axis="x")
     groei_rijen = _rows
+    charts.checked(fig_groei, value_axis="x")
     return fig_groei, groei_rijen
 
 

@@ -8,7 +8,7 @@ from datchat import store
 
 
 def describe(con: duckdb.DuckDBPyConnection, table_id: str, max_codes: int = 40) -> str:
-    t = table_id.upper()
+    t = store.canonical_id(con, table_id)
     meta = con.execute(
         "SELECT title, temporal_coverage, status, frequency, modified::DATE, source_api,"
         " long_description FROM meta.tables WHERE table_id = ?",

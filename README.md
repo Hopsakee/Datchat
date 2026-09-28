@@ -38,6 +38,7 @@ uv run marimo edit notebooks/<slug>.py        # open the notebook it wrote
 | `query SQL` | Run a read-only query, for probing. |
 | `verify [ID…] [--cross-check]` | Check row counts, codes and duplicates. `--cross-check` also compares every cell with an independent CBS channel. |
 | `check NOTEBOOK…` | Run notebooks headless (`marimo export`). It fails if any cell errors or a chart breaks the checklist. |
+| `render NOTEBOOK` | Write every chart (`fig_*`) to PNG in `data/renders/`, for a visual check. This needs Chrome; set `BROWSER_PATH` or run `uv run plotly_get_chrome`. |
 | `status` | Show the catalog and the synced tables. |
 
 ## Database layout
@@ -64,8 +65,16 @@ We checked this against the live APIs in September 2026:
 - **The `cbsodata` package is not used.** It wraps v3 only, returns wide tables and drops the
   period status.
 
-Tested: for 6 wealth tables, every one of 207,999 v4 cells is identical to v3. For 82960NED,
-all 14,720 v3 cells are identical to the v4 bulk CSV.
+What we found when testing the two APIs:
+
+- **The values agree.** For every table used in the notebooks, all numeric v4 values are
+  identical to v3; together that is about 2.1 million values. Where v3 carries different
+  labels (85496NED, where CBS renamed origin categories in v4 only), the v4 bulk CSV is used
+  as the second channel instead.
+- **v4 table ids are case-sensitive:** `37296ned` works and `37296NED` is a 404. `datchat`
+  resolves ids to CBS's exact spelling through the catalog.
+- **v4 lists impossible combinations** as empty cells (`ValueAttribute = 'Impossible'`); v3
+  omits them.
 
 ## Concurrency
 
@@ -75,12 +84,15 @@ A sync that finds the file in use says so and stops. It doesn't wait or retry.
 
 ## Acceptance questions (plan v2)
 
-| # | Question | Notebook | Status |
+| # | Question | Notebook | Result |
 |---|---|---|---|
-| 1 | Inwoners op 1 januari 2024 (exact) | `notebooks/acceptance/01_…` | pending |
-| 2 | Top 1% vs onderste 50%, met/zonder eigen woning | [`02_vermogen_top1_onderste50.py`](notebooks/acceptance/02_vermogen_top1_onderste50.py) | done, runs headless; top 1% excl. woning = niet beschikbaar |
-| 3 | 5 grootste bodemgebruiksvormen vs aandeel bbp | `notebooks/acceptance/03_…` | pending |
-| 4 | Vermogen top 0,01% per gemeente in 1950 | `notebooks/acceptance/04_…` | pending (expected: niet beschikbaar) |
+| 1 | Inwoners op 1 januari 2024 (exact) | [`01_inwoners_1_januari_2024.py`](notebooks/acceptance/01_inwoners_1_januari_2024.py) | 17.942.942 (85496NED, same value in 7461bev) |
+| 2 | Top 1% vs onderste 50%, met/zonder eigen woning | [`02_vermogen_top1_onderste50.py`](notebooks/acceptance/02_vermogen_top1_onderste50.py) | 2023: top 1% 25,1%, bottom 50% 2,3%; top 1% excl. eigen woning = **niet beschikbaar** |
+| 3 | 5 grootste bodemgebruiksvormen vs aandeel bbp | [`03_bodemgebruik_vs_bbp.py`](notebooks/acceptance/03_bodemgebruik_vs_bbp.py) | 2003–2022, with the 2020 method break shown; SBI mapping in an editable `Aanname, niet CBS` cell |
+| 4 | Vermogen top 0,01% per gemeente in 1950 | [`04_vermogen_top001_gemeente_1950.py`](notebooks/acceptance/04_vermogen_top001_gemeente_1950.py) | **niet beschikbaar**, no chart; reasons read from CBS metadata |
+
+Each notebook ends with a *Controle* section recording its spot checks against CBS. All four
+pass `datchat check` and `uv run pytest -m live`.
 
 ## Development
 

@@ -64,20 +64,20 @@ def _(nb):
 @app.cell
 def _(TABLES, charts, df, go):
     _c = charts.colors(1)
-    fig = go.Figure(
+    fig_main = go.Figure(
         go.Scatter(
             x=df["year"], y=df["value"], name="TODO", mode="lines+markers", line={"color": _c[0]}
         )
     )
     charts.style(
-        fig,
+        fig_main,
         title="TODO: the finding",
         x_title="Jaar (1 januari)",
         y_title="TODO (unit)",
         tables=TABLES,
     )
-    charts.label_ends(fig)
-    charts.checked(fig)
+    charts.label_ends(fig_main)
+    charts.checked(fig_main)
     return
 
 

@@ -141,20 +141,14 @@ def _(TABLES, charts, go, incl):
     # Bottom 50% was negative (more debt than assets) in 2010-2019: keep zero visible.
     fig_incl.update_yaxes(zeroline=True, zerolinecolor="#999", zerolinewidth=1)
     # Label each series once, at its last point.
-    for _name, _col, _color in [
-        ("Top 1%", "top1_pct", _c[0]),
-        ("Onderste 50%", "onderste50_pct", _c[1]),
-    ]:
-        _last = _d.iloc[-1]
-        fig_incl.add_annotation(
-            x=_last["year"],
-            y=_last[_col],
-            text=_name,
-            xanchor="left",
-            xshift=8,
-            showarrow=False,
-            font={"color": _color, "size": 12},
-        )
+    _last = _d.iloc[-1]
+    charts.direct_labels(
+        fig_incl,
+        [
+            (_last["year"], _last["top1_pct"], "Top 1%", _c[0]),
+            (_last["year"], _last["onderste50_pct"], "Onderste 50%", _c[1]),
+        ],
+    )
     charts.checked(fig_incl)
     return (fig_incl,)
 

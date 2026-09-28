@@ -87,6 +87,25 @@ uv run datchat query "SELECT year, period_status, KenmerkenVanHuishoudens_title,
 - gaps in years
 - provisional periods
 
+### Pitfalls found while building the acceptance notebooks
+- **Table ids are case-sensitive at CBS** (`37296ned` works, `37296NED` is a 404). `datchat`
+  resolves ids through the catalog, but always write them in notebooks exactly as `datchat
+  search` shows them.
+- **`period_status` can be empty.** Some tables (e.g. 7461bev, 37105) have no period status in
+  their metadata. Read "Status van de cijfers" in the toelichting and quote it; don't guess.
+- **Empty cells:** `value` is NULL with `value_attribute = 'Impossible'` (CBS symbol ".")
+  where a combination can't exist (e.g. married 4-year-olds). Some measures are text
+  (`string_value`), not numbers.
+- **Not every table has a `Perioden` dimension.** One-year tables (e.g. the wijk- en
+  buurtcijfers) are a single period; take the year from `meta.tables.temporal_coverage`.
+- **Method breaks.** Search the toelichting for *breuk*, *trendbreuk* and *vergelijkbaar*.
+  Across a break, never draw one connected line. Show the series separately and say so.
+  Rankings (e.g. "the five largest") can differ on either side of a break.
+- **Negative values** (e.g. the wealth of the bottom 50%) need a visible zero line, and titles
+  computed from ratios must handle a denominator ≤ 0.
+- **Two tables, one number:** before combining tables (e.g. value added from one and bbp from
+  another), assert in the notebook that their shared totals are identical.
+
 ### 6. Write the notebook
 Copy `.claude/skills/cbs-question/template.py` to `notebooks/<slug>.py` and fill it in. The
 structure:
@@ -94,7 +113,8 @@ structure:
 2. **Tabelkeuze**: the per-table record from step 4, including rejected tables
 3. **Aanname, niet CBS** (only if needed): the mapping, as editable data
 4. Per chart: **a SQL cell** (`df = nb.sql("""…""")`) and directly below it **a chart cell**
-   that follows `docs/chart-checklist.md`
+   that follows `docs/chart-checklist.md`. Use `charts.direct_labels` for line-end labels
+   (it keeps them from overlapping) and end with `charts.checked(fig_…)`
 5. **Niet beschikbaar** (if any part isn't covered): what is missing and which tables were
    considered
 6. **Bronnen**: `nb.sources([...])`
@@ -109,6 +129,15 @@ notebook never blocks a sync for longer than a query takes.
 uv run datchat check notebooks/<slug>.py     # marimo export; fails if any cell errors
 ```
 Fix the notebook until this passes. A notebook that fails this check is not done.
+
+Then **look at every chart**. The checker can't see overlap or clipping.
+```bash
+uv run datchat render notebooks/<slug>.py     # PNGs in data/renders/<slug>/
+```
+Open the PNGs, then fix overlapping or clipped labels, a hidden zero line, or a title that
+doesn't match the data. Charts must be assigned to variables named `fig_…` for `render` to
+find them. Rendering needs Chrome. If kaleido can't find it, set `BROWSER_PATH` to a
+Chrome or Chromium binary, or run `uv run plotly_get_chrome` once.
 
 ### 8. Spot check against CBS and record it
 ```bash

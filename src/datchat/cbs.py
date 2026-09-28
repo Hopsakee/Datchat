@@ -245,13 +245,14 @@ def v3_wide_to_long(
             value = row.get(key)
             if value is None:
                 continue
+            is_text = isinstance(value, str)
             out.append(
                 {
                     "Id": None,
                     "Measure": measure,
                     "ValueAttribute": None,
-                    "Value": float(value),
-                    "StringValue": None,
+                    "Value": None if is_text else float(value),
+                    "StringValue": value.strip() if is_text else None,
                     **dims,
                 }
             )

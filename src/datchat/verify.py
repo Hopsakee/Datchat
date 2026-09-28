@@ -16,7 +16,7 @@ from dataclasses import dataclass
 import duckdb
 
 from datchat import store
-from datchat.cbs import CbsClient, TableMetadata
+from datchat.cbs import CbsClient, CbsError, TableMetadata
 
 # Documented discrepancies in CBS's own metadata. Shown as NOTE, never silently passed.
 KNOWN_COUNT_DISCREPANCIES = {
@@ -113,13 +113,12 @@ def check_table_integrity(con: duckdb.DuckDBPyConnection, t: str) -> list[Check]
         [t],
     )
     no_status = [p for p in periods if not p[0]]
-    checks.append(
-        Check(
-            f"{t} period status",
-            not no_status,
-            ", ".join(f"{p[0]}: {p[2][:4]}-{p[3][:4]}" for p in periods),
+    summary = ", ".join(f"{p[0] or 'geen status'}: {p[2][:4]}-{p[3][:4]}" for p in periods)
+    if no_status:
+        summary += (
+            " (CBS supplies no period status; read 'Status van de cijfers' in the toelichting)"
         )
-    )
+    checks.append(Check(f"{t} period status", True, summary, note=bool(no_status)))
     return checks
 
 
@@ -166,29 +165,35 @@ def cross_check_table(con: duckdb.DuckDBPyConnection, client: CbsClient, t: str)
     meta = _stored_metadata(con, t)
     dims = meta.dimension_ids
     if source == "v4":
-        other_name = "v3 API"
-        other = client.observations_v3(meta)
+        try:
+            other = client.observations_v3(meta)
+            other_name = "v3 API"
+        except CbsError as e:
+            # v3 and v4 can carry different labels (CBS renamed categories in v4 only), so the
+            # v3 topics can't be paired safely; the v4 bulk CSV is the other independent channel.
+            other = client.observations_v4_csv(t)
+            other_name = f"v4 bulk CSV (v3 not comparable: {e})"
     else:
         other_name = "v4 bulk CSV"
         other = client.observations_v4_csv(t)
 
-    theirs = {(r["Measure"], *(r[d] for d in dims)): r["Value"] for r in other}
+    # Compare values. Empty cells (e.g. ValueAttribute 'Impossible', CBS symbol '.') are part
+    # of v4 but simply absent from v3, so they are compared as "no value" on both sides.
+    theirs = {
+        (r["Measure"], *(r[d] for d in dims)): r["Value"] for r in other if r["Value"] is not None
+    }
     cols = ", ".join(["measure"] + [f'"{d}"' for d in dims] + ["value"])
-    mine = {tuple(r[:-1]): r[-1] for r in _q(con, f"SELECT {cols} FROM {store.raw_table(t)}")}
+    rows = _q(con, f"SELECT {cols} FROM {store.raw_table(t)}")
+    mine = {tuple(r[:-1]): r[-1] for r in rows if r[-1] is not None}
+    empty = len(rows) - len(mine)
 
     only_mine = mine.keys() - theirs.keys()
     only_theirs = theirs.keys() - mine.keys()
-    diffs = [
-        k
-        for k in mine.keys() & theirs.keys()
-        if not (
-            mine[k] == theirs[k]
-            or (mine[k] is not None and theirs[k] is not None and abs(mine[k] - theirs[k]) < 1e-9)
-        )
-    ]
+    diffs = [k for k in mine.keys() & theirs.keys() if abs(mine[k] - theirs[k]) >= 1e-9]
     ok = not only_mine and not only_theirs and not diffs
+    empty_note = f" (+{empty} cells without a number: 'Impossible' or text)" if empty else ""
     detail = (
-        f"{len(mine)} cells identical to {other_name}"
+        f"{len(mine)} values identical to {other_name}{empty_note}"
         if ok
         else f"vs {other_name}: {len(only_mine)} only ours, {len(only_theirs)} only theirs, "
         f"{len(diffs)} differ (e.g. {(diffs or list(only_mine) or list(only_theirs))[:2]})"

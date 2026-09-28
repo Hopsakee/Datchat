@@ -68,7 +68,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
     from datchat.sync import sync
 
     con = store.connect(config.db_path())
-    ids = [t.upper() for t in args.tables] or _synced(con)
+    ids = [store.canonical_id(con, t) for t in args.tables] or _synced(con)
     if not ids:
         sys.exit("Nothing to sync: give table ids (find them with `datchat search`).")
     results = sync(con, ids, force=args.force)
@@ -97,7 +97,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     from datchat.verify import run_checks
 
     con = store.connect(config.db_path(), read_only=True)
-    ids = [t.upper() for t in args.tables] or _synced(con)
+    ids = [store.canonical_id(con, t) for t in args.tables] or _synced(con)
     checks = run_checks(con, ids, cross_check_v3=args.cross_check)
     width = max(len(c.name) for c in checks)
     for c in checks:
@@ -128,6 +128,28 @@ def cmd_check(args: argparse.Namespace) -> int:
                 failed.append(nb)
                 print("  " + (proc.stdout + proc.stderr).strip()[-2000:].replace("\n", "\n  "))
     return 1 if failed else 0
+
+
+def cmd_render(args: argparse.Namespace) -> int:
+    import importlib.util
+    from pathlib import Path
+
+    nb_path = Path(args.notebook)
+    out_dir = Path(args.out or f"data/renders/{nb_path.stem}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    spec = importlib.util.spec_from_file_location(nb_path.stem, nb_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _, defs = module.app.run()
+    figs = {k: v for k, v in defs.items() if k.startswith("fig_")}
+    if not figs:
+        print("No variables named fig_* in the notebook.")
+        return 1
+    for name, fig in figs.items():
+        path = out_dir / f"{name}.png"
+        fig.write_image(path, width=1100, height=640)
+        print(path)
+    return 0
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -199,6 +221,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("check", help="run notebooks headless; fails if any cell errors")
     p.add_argument("notebooks", nargs="+")
     p.set_defaults(func=cmd_check)
+
+    p = sub.add_parser("render", help="write the notebook's charts (fig_*) to PNG files")
+    p.add_argument("notebook")
+    p.add_argument("--out", help="output directory (default: data/renders/<notebook>)")
+    p.set_defaults(func=cmd_render)
 
     p = sub.add_parser("status", help="what is in the database")
     p.set_defaults(func=cmd_status)

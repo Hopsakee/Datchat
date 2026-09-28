@@ -40,3 +40,12 @@ def test_v3_mapping_refuses_mismatched_measures(client):
 def test_csv_bundle_parses_decimal_commas(client):
     rows = client.observations_v4_csv(T)
     assert [r["Value"] for r in rows] == [o["Value"] for o in OBSERVATIONS]
+
+
+def test_v3_text_values_become_string_values(client):
+    meta = client.metadata(T)
+    wide = [dict(r) for r in V3_WIDE]
+    wide[0]["Aantal_1"] = "Nederland   "
+    rows = v3_wide_to_long(meta, V3_PROPS, wide)
+    text = [r for r in rows if r["StringValue"] is not None]
+    assert len(text) == 1 and text[0]["StringValue"] == "Nederland" and text[0]["Value"] is None

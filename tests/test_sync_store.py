@@ -65,3 +65,20 @@ def test_cross_check_detects_changed_value(tmp_path, client):
     con.execute(f"UPDATE {store.raw_table(T)} SET value = 99 WHERE id = 0")
     [_, cross] = verify.cross_check_table(con, client, T)
     assert not cross.ok and "1 differ" in cross.detail
+
+
+def test_cross_check_treats_impossible_cells_as_no_value(tmp_path, client, fake_cbs):
+    import tests.conftest as c
+
+    extra = c._obs(99, "M2", "G1", "2024JJ00", None)
+    extra["ValueAttribute"] = "Impossible"  # v4 lists it; v3 has null and drops it
+    c.OBSERVATIONS.append(extra)
+    fake_cbs.properties["ObservationCount"] = len(c.OBSERVATIONS)
+    try:
+        con = _con(tmp_path)
+        sync(con, [T], client=client)
+        [_, cross] = verify.cross_check_table(con, client, T)
+        assert cross.ok, cross.detail
+        assert "+1 cells without a number" in cross.detail
+    finally:
+        c.OBSERVATIONS.remove(extra)

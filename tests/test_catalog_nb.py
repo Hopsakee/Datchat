@@ -91,3 +91,11 @@ def test_chart_checker():
     fig.update_yaxes(title_text="Aandeel")
     with pytest.raises(charts.ChartCheckError, match="yaxis_unit_missing"):
         charts.checked(fig)
+
+
+def test_table_ids_resolve_to_cbs_spelling(db, client):
+    con = store.connect(db)
+    assert store.canonical_id(con, "37296NED") == "37296NED"  # unknown: passed through
+    catalog.sync_catalog(con, client)
+    assert store.canonical_id(con, "37296NED") == "37296ned"  # v4 ids are case-sensitive
+    assert store.canonical_id(con, " 83834ned ") == "83834NED"

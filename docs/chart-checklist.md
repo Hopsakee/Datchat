@@ -4,9 +4,12 @@ Our own design rules for every chart this project produces. The idea comes from 
 written checklist with an automated gate, so that a chart is not "done" until it passes both.
 
 **Enforced in code.** `datchat.charts` implements the house style (`style`, `colors`,
-`label_ends`), and `charts.checked(fig)` raises when a figure breaks a checkable rule. Every
+`label_ends`, `direct_labels`, which keeps line-end labels from overlapping), and `charts.checked(fig)` raises when a figure breaks a checkable rule. Every
 notebook chart cell ends with `charts.checked(fig)`, so `datchat check` (headless export)
-fails on a non-compliant chart. Rules marked *(manual)* need a look at the rendered chart.
+fails on a non-compliant chart. Rules marked *(manual)* need a look at the rendered chart:
+`datchat render NOTEBOOK` writes every `fig_*` to PNG. The first review of the acceptance
+charts found clipped captions and labels and overlapping direct labels, none of which the
+checker can see.
 
 ## Data honesty (specific to this project)
 

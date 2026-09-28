@@ -45,16 +45,16 @@ def style(
     note: str | None = None,
 ) -> go.Figure:
     """Apply the house style: finding as title, units on axes, source caption, no legend."""
-    caption = "Bron: CBS StatLine " + ", ".join(t.upper() for t in tables)
+    caption = "Bron: CBS StatLine " + ", ".join(tables)
     if note:
-        caption += f". {note}"
+        caption += "<br>" + note
     fig.update_layout(
         title={"text": title, "x": 0, "xanchor": "left", "font": {"size": 18}},
         template="simple_white",
         font={"family": FONT, "color": TEXT, "size": 13},
         showlegend=False,
         separators=",.",
-        margin={"l": 70, "r": 170, "t": 70, "b": 90},
+        margin={"l": 80, "r": 190, "t": 70, "b": 130},
         plot_bgcolor="white",
         paper_bgcolor="white",
     )
@@ -66,9 +66,11 @@ def style(
         xref="paper",
         yref="paper",
         x=0,
-        y=-0.18,
+        y=0,
+        yshift=-75,
         xanchor="left",
         yanchor="top",
+        align="left",
         showarrow=False,
         font={"size": 11, "color": "#666"},
         name="source",
@@ -76,22 +78,46 @@ def style(
     return fig
 
 
-def label_ends(fig: go.Figure, fmt: str = "{name}") -> go.Figure:
-    """Direct labels at the last point of every line trace, in the trace's colour."""
-    for tr in fig.data:
-        if tr.type != "scatter" or tr.x is None or len(tr.x) == 0:
-            continue
-        color = (tr.line.color if tr.line and tr.line.color else None) or TEXT
+def direct_labels(
+    fig: go.Figure, labels: Iterable[tuple[float, float, str, str]], min_gap: float | None = None
+) -> go.Figure:
+    """Place direct labels (x, y, text, colour) right of their points without overlapping.
+
+    Labels closer than ``min_gap`` (default: 4% of the y-range of the labels' traces) are
+    pushed apart vertically; the label keeps its colour so it still reads as its series.
+    """
+    items = sorted(labels, key=lambda t: t[1])
+    if not items:
+        return fig
+    if min_gap is None:
+        ys = [v for tr in fig.data if tr.y is not None for v in tr.y if v is not None]
+        span = (max(ys) - min(ys)) if ys else 1.0
+        min_gap = 0.04 * (span or 1.0)
+    placed: list[float] = []
+    for _, y, _, _ in items:
+        placed.append(max(y, placed[-1] + min_gap) if placed else y)
+    for (x, _, text, color), y in zip(items, placed, strict=True):
         fig.add_annotation(
-            x=tr.x[-1],
-            y=tr.y[-1],
-            text=fmt.format(name=tr.name, y=tr.y[-1]),
+            x=x,
+            y=y,
+            text=text,
             xanchor="left",
             xshift=8,
             showarrow=False,
             font={"color": color, "size": 12},
         )
     return fig
+
+
+def label_ends(fig: go.Figure, fmt: str = "{name}") -> go.Figure:
+    """Direct labels at the last point of every line trace, in the trace's colour."""
+    labels = []
+    for tr in fig.data:
+        if tr.type != "scatter" or tr.x is None or len(tr.x) == 0:
+            continue
+        color = (tr.line.color if tr.line and tr.line.color else None) or TEXT
+        labels.append((tr.x[-1], tr.y[-1], fmt.format(name=tr.name, y=tr.y[-1]), color))
+    return direct_labels(fig, labels)
 
 
 def check_figure(fig: go.Figure, value_axis: str = "y") -> list[str]:

@@ -157,6 +157,23 @@ def connect(path: Path, read_only: bool = False) -> duckdb.DuckDBPyConnection:
     return con
 
 
+def canonical_id(con: duckdb.DuckDBPyConnection, table_id: str) -> str:
+    """CBS's exact spelling of a table id. v4 ids are case-sensitive ('37296ned' works,
+    '37296NED' is a 404), so user input is matched case-insensitively against the catalog
+    and the synced tables, and passed through unchanged when neither knows it."""
+    for sql in (
+        "SELECT table_id FROM meta.catalog WHERE lower(table_id) = lower(?)",
+        "SELECT table_id FROM meta.tables WHERE lower(table_id) = lower(?)",
+    ):
+        try:
+            row = con.execute(sql, [table_id.strip()]).fetchone()
+        except duckdb.CatalogException:  # meta.catalog not created yet
+            continue
+        if row:
+            return row[0]
+    return table_id.strip()
+
+
 def now() -> datetime:
     return datetime.now(UTC)
 

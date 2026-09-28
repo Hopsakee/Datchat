@@ -27,9 +27,9 @@ def sql(query: str, params: list | None = None) -> pd.DataFrame:
 
 def require(table_ids: Iterable[str]) -> None:
     """Fail with a clear instruction when a table the notebook needs is not synced."""
-    wanted = [t.upper() for t in table_ids]
-    have = set(sql("SELECT table_id FROM meta.tables")["table_id"])
-    missing = [t for t in wanted if t not in have]
+    wanted = list(table_ids)
+    have = {t.lower() for t in sql("SELECT table_id FROM meta.tables")["table_id"]}
+    missing = [t for t in wanted if t.lower() not in have]
     if missing:
         raise RuntimeError(
             f"Tables not synced: {', '.join(missing)}. Run: uv run datchat sync {' '.join(missing)}"
@@ -38,7 +38,7 @@ def require(table_ids: Iterable[str]) -> None:
 
 def sources(table_ids: Iterable[str]) -> pd.DataFrame:
     """Provenance per table: title, coverage, which periods are provisional, sync time."""
-    ids = [t.upper() for t in table_ids]
+    ids = [t.lower() for t in table_ids]
     return sql(
         """
         SELECT t.table_id, trim(t.title) AS title, t.temporal_coverage,
@@ -49,7 +49,7 @@ def sources(table_ids: Iterable[str]) -> pd.DataFrame:
         FROM meta.tables t
         LEFT JOIN meta.dimension_codes c
           ON c.table_id = t.table_id AND c.dimension_id = 'Perioden'
-        WHERE t.table_id IN (SELECT unnest(?::VARCHAR[]))
+        WHERE lower(t.table_id) IN (SELECT unnest(?::VARCHAR[]))
         GROUP BY ALL ORDER BY t.table_id
         """,
         [ids],
@@ -58,4 +58,4 @@ def sources(table_ids: Iterable[str]) -> pd.DataFrame:
 
 def source_line(table_ids: Iterable[str]) -> str:
     """One-line caption for charts, e.g. 'Bron: CBS StatLine 84476NED, 83834NED'."""
-    return "Bron: CBS StatLine " + ", ".join(t.upper() for t in table_ids)
+    return "Bron: CBS StatLine " + ", ".join(table_ids)

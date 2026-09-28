@@ -120,8 +120,9 @@ structure:
 6. **Bronnen**: `nb.sources([...])`
 7. **Controle**: the spot checks from step 8
 
-Notebooks call `nb.require([...])` first, so they fail with a clear message when a table
-isn't synced. Each query opens and closes its own read-only connection (`nb.sql`), so an open
+Notebooks call `nb.require([...])` first. The database is gitignored, so on a fresh clone it
+syncs the missing tables from CBS itself, and it fails with the reason and the `datchat sync`
+command when that is not possible (no network, CBS down, unknown id). Each query opens and closes its own read-only connection (`nb.sql`), so an open
 notebook never blocks a sync for longer than a query takes.
 
 ### 7. The notebook must run headless

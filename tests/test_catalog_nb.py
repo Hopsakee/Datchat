@@ -44,9 +44,22 @@ def test_nb_reads_with_short_lived_read_only_connections(db, client):
     store.connect(db).close()
     nb.require([T])
     with pytest.raises(RuntimeError, match="uv run datchat sync 99999NED"):
-        nb.require([T, "99999NED"])
+        nb.require([T, "99999NED"], sync_missing=False)
     src = nb.sources([T])
     assert src["voorlopig"][0] == "2024"
+
+
+def test_require_syncs_missing_tables_on_a_fresh_clone(db, client):
+    assert not db.exists()  # a fresh clone: the database is gitignored
+    nb.require([T], client=client)
+    assert nb.sql(f"SELECT count(*) AS n FROM {store.raw_table(T)}")["n"][0] > 0
+    nb.require([T], client=client)  # second run: nothing to do
+    assert nb.sql("SELECT count(*) AS n FROM meta.sync_log")["n"][0] == 1
+
+
+def test_require_says_why_when_a_sync_fails(db, client):
+    with pytest.raises(RuntimeError, match="uv run datchat sync 99999NED"):
+        nb.require(["99999NED"], client=client)
 
 
 def test_clear_message_when_another_process_holds_the_file(db):

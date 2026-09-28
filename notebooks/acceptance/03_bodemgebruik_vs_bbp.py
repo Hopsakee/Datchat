@@ -214,7 +214,7 @@ def _(LAND_TABLES, charts, go, laatste_jaar, opp, top5):
         _labels.append((_last["year"], _last["aandeel_oppervlakte_pct"], _t, _c[_i]))
     charts.direct_labels(fig_opp, _labels)
     _brk = opp.loc[opp["methode"].str.startswith("NBBG"), "year"].min()
-    fig_opp.add_vline(x=_brk - 1.5, line_dash="dot", line_color="#999")
+    fig_opp.add_vline(x=_brk - 1.5, line_dash="dot", line_color="#999", line_width=1.5)
     fig_opp.add_annotation(
         x=_brk - 1.5,
         y=1.02,

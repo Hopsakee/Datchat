@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+# Local DuckDB cache (the real one lives on the Hetzner server)
+data/
+*.duckdb
+*.duckdb.wal
+
+# marimo session caches
+__marimo__/
